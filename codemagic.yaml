@@ -3,21 +3,29 @@ workflows:
     name: LiDAR Tennis Test iOS App
     max_build_duration: 120
     instance_type: mac_mini_m2
-    integrations:
-      app_store_connect: codemagic
     environment:
-      ios_signing:
-        distribution_type: development
-        bundle_identifier: com.thesis.LiDARTennisTest
       vars:
-        XCODE_WORKSPACE: "LiDARTennisTest.xcodeproj"
+        XCODE_PROJECT: "LiDARTennisTest.xcodeproj"
         XCODE_SCHEME: "LiDARTennisTest"
-      xcode: 15.2
+        BUNDLE_ID: "com.giluis.LiDARTennisTest"
+        APPLE_ID: $APPLE_ID
+        APP_SPECIFIC_PASSWORD: $APP_SPECIFIC_PASSWORD
+      xcode: latest
       cocoapods: default
     scripts:
-      - name: Set up code signing settings on Xcode project
+      - name: Set up automatic code signing with Apple ID
         script: |
-          xcode-project use-profiles
+          # Configurar Bundle ID
+          sed -i '' 's/PRODUCT_BUNDLE_IDENTIFIER = .*/PRODUCT_BUNDLE_IDENTIFIER = '"$BUNDLE_ID"';/g' "$XCODE_PROJECT/project.pbxproj"
+          
+          # Habilitar automatic signing
+          sed -i '' 's/CODE_SIGN_STYLE = Manual;/CODE_SIGN_STYLE = Automatic;/g' "$XCODE_PROJECT/project.pbxproj"
+          
+          # Obtener Team ID del Apple ID
+          xcrun altool --list-providers -u "$APPLE_ID" -p "$APP_SPECIFIC_PASSWORD" || true
+          
+          # Configurar Team ID (se obtendra automaticamente con -allowProvisioningUpdates)
+          sed -i '' 's/DEVELOPMENT_TEAM = "";/DEVELOPMENT_TEAM = "";/g' "$XCODE_PROJECT/project.pbxproj"
       - name: Get CocoaPods dependencies (if needed)
         script: |
           if [ -f "Podfile" ]; then
@@ -25,26 +33,30 @@ workflows:
           else
             echo "No Podfile found, skipping CocoaPods"
           fi
-      - name: Build ipa for distribution
+      - name: Build and archive
         script: |
-          xcode-project build-ipa \
-            --project "$XCODE_WORKSPACE" \
-            --scheme "$XCODE_SCHEME"
+          xcodebuild -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -sdk iphoneos \
+            -configuration Release \
+            -archivePath $HOME/Library/Developer/Xcode/Archives/LiDARTennisTest.xcarchive \
+            -allowProvisioningUpdates \
+            clean archive
+      - name: Export IPA
+        script: |
+          xcodebuild -exportArchive \
+            -archivePath $HOME/Library/Developer/Xcode/Archives/LiDARTennisTest.xcarchive \
+            -exportPath build/ios/ipa \
+            -exportOptionsPlist /dev/null \
+            -allowProvisioningUpdates
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
-      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.app
       - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
     publishing:
       email:
         recipients:
-          - your-email@example.com
-        notify:
-          success: true
-          failure: true
-      slack:
-        channel: '#builds'
-        notify_on_build_start: false
+          - tu-email@ejemplo.com
         notify:
           success: true
           failure: true
